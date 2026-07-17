@@ -217,6 +217,26 @@ form.borrow-form{padding:16px 24px 24px;display:flex;flex-direction:column;gap:1
   border:1px solid var(--line);border-radius:999px;padding:4px 13px;font-size:13px;color:var(--muted);
 }
 .slot-chips button[aria-pressed="true"]{background:var(--brand-bg);border-color:var(--brand);color:var(--brand-ink);font-weight:700}
+.serial-box{
+  display:flex;flex-wrap:wrap;gap:6px;max-height:132px;overflow-y:auto;
+  border:1px solid var(--line);border-radius:10px;padding:8px;background:var(--paper);
+}
+.serial-box button{
+  border:1px solid var(--line);border-radius:8px;padding:3px 10px;font-size:12.5px;
+  color:var(--muted);font-variant-numeric:tabular-nums;background:var(--card);
+}
+.serial-box button[aria-pressed="true"]{
+  background:var(--brand-bg);border-color:var(--brand);color:var(--brand-ink);font-weight:700;
+}
+.loan .sub.serial{color:var(--brand-ink);font-variant-numeric:tabular-nums}
+.ret-list{display:flex;flex-direction:column;gap:6px;padding:14px 24px 4px;max-height:40vh;overflow-y:auto}
+.ret-list label{
+  display:flex;align-items:center;gap:10px;border:1px solid var(--line);
+  border-radius:9px;padding:8px 12px;font-size:14px;cursor:pointer;
+  font-variant-numeric:tabular-nums;
+}
+.ret-list input{width:16px;height:16px;accent-color:var(--brand)}
+.dlg-foot{display:flex;gap:10px;justify-content:flex-end;padding:14px 24px 22px}
 .dlg-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:4px}
 .btn-plain{border:1px solid var(--line);border-radius:10px;padding:9px 18px;font-weight:600;color:var(--muted)}
 .btn-main{
@@ -307,6 +327,10 @@ footer{margin-top:48px;font-size:12px;color:var(--muted);text-align:center}
         <button type="button" id="qtyPlus" aria-label="增加數量">+</button>
       </div>
     </div>
+    <div class="field">
+      <label>借用序號(調整數量會自動選,也可點選更換)</label>
+      <div class="serial-box" id="serialBox"></div>
+    </div>
     <div class="row2">
       <div class="field">
         <label for="fName">借用人姓名</label>
@@ -346,6 +370,20 @@ footer{margin-top:48px;font-size:12px;color:var(--muted);text-align:center}
       <button type="submit" class="btn-main" id="btnSubmit">登記借用</button>
     </div>
   </form>
+</dialog>
+
+<dialog id="dlgRet">
+  <div class="dlg-head">
+    <span class="cat">歸還登記</span>
+    <h2 id="rName"></h2>
+    <div class="avail" id="rInfo"></div>
+  </div>
+  <div class="ret-list" id="retList"></div>
+  <p class="form-err" id="retErr" role="alert" style="padding:6px 24px 0"></p>
+  <div class="dlg-foot">
+    <button type="button" class="btn-plain" id="btnRetCancel">取消</button>
+    <button type="button" class="btn-main" id="btnRetOk">確認歸還</button>
+  </div>
 </dialog>
 
 <div id="toast" role="status"></div>
@@ -415,20 +453,38 @@ async function apiPost(payload){
   if(isDemo){
     const data = demoLoad();
     if(payload.action === "borrow"){
-      const avail = availableOf(payload.itemId, data);
-      if(payload.qty > avail) throw new Error("可借數量不足(剩 " + avail + ")");
+      const availS = availableSerials(payload.itemId, data);
+      const serials = (payload.serials || []).map(String);
+      if(!serials.length) throw new Error("請至少選擇一個序號");
+      const gone = serials.find(s => !availS.includes(s));
+      if(gone) throw new Error("序號 " + gone + " 剛被借走了,請重新選擇");
       const item = data.equipment.find(e => e.id === payload.itemId);
       data.loans.unshift({
         id: "L" + Date.now().toString(36),
         itemId: payload.itemId, itemName: item ? item.name : payload.itemId,
-        qty: payload.qty, borrower: payload.borrower, unit: payload.unit,
+        qty: serials.length, borrower: payload.borrower, unit: payload.unit,
         date: payload.date, slot: payload.slot, due: payload.due,
         status: "借用中", returned: "", note: payload.note,
+        serials: serials.join(", "),
         ts: new Date().toISOString()
       });
     }else if(payload.action === "return"){
       const l = data.loans.find(x => x.id === payload.loanId);
-      if(l){ l.status = "已歸還"; l.returned = todayStr(); }
+      if(l){
+        const rowSerials = parseList(l.serials);
+        const toReturn = (payload.serials || []).map(String);
+        if(toReturn.length && rowSerials.length && toReturn.length < rowSerials.length){
+          // 部分歸還:勾選的拆成一筆已歸還,原紀錄留未還的
+          l.qty = rowSerials.length - toReturn.length;
+          l.serials = rowSerials.filter(s => !toReturn.includes(s)).join(", ");
+          data.loans.unshift({...l,
+            id: "L" + Date.now().toString(36), qty: toReturn.length,
+            serials: toReturn.join(", "), status: "已歸還", returned: todayStr()
+          });
+        }else{
+          l.status = "已歸還"; l.returned = todayStr();
+        }
+      }
     }
     demoSave(data);
     return data;
@@ -447,13 +503,39 @@ async function apiPost(payload){
 
 /* ---------- 計算 ---------- */
 function activeLoans(data){ return (data || state).loans.filter(l => l.status === "借用中"); }
+const parseList = s => String(s || "").split(/[,、;\s]+/).filter(Boolean);
+// 一件設備的全部序號:試算表「序號清單」欄有填就用它,否則依總數自動產生 編號-01…
+function serialsOfItem(item){
+  const custom = parseList(item.serials);
+  if(custom.length) return custom;
+  const n = Number(item.total) || 0, pad = n >= 100 ? 3 : 2, out = [];
+  for(let i = 1; i <= n; i++) out.push(item.id + "-" + String(i).padStart(pad, "0"));
+  return out;
+}
+function borrowedInfo(itemId, data){
+  const d = data || state, set = new Set();
+  let legacy = 0; // 升級前的舊紀錄只有數量沒有序號
+  d.loans.forEach(l => {
+    if(l.status !== "借用中" || l.itemId !== itemId) return;
+    const ss = parseList(l.serials);
+    if(ss.length) ss.forEach(s => set.add(s));
+    else legacy += Number(l.qty || 0);
+  });
+  return {set, legacy};
+}
+function availableSerials(itemId, data){
+  const d = data || state;
+  const item = d.equipment.find(e => e.id === itemId);
+  if(!item) return [];
+  const b = borrowedInfo(itemId, d);
+  return serialsOfItem(item).filter(s => !b.set.has(s));
+}
 function availableOf(itemId, data){
   const d = data || state;
   const item = d.equipment.find(e => e.id === itemId);
   if(!item) return 0;
-  const out = d.loans.filter(l => l.status === "借用中" && l.itemId === itemId)
-                     .reduce((s,l) => s + Number(l.qty || 0), 0);
-  return Math.max(0, Number(item.total) - out);
+  const b = borrowedInfo(itemId, d);
+  return Math.max(0, serialsOfItem(item).length - b.set.size - b.legacy);
 }
 function isOverdue(l){ return l.status === "借用中" && l.due && l.due < todayStr(); }
 
@@ -516,7 +598,9 @@ function loanRow(l, withReturn){
   const over = isOverdue(l);
   return '<div class="loan">' +
     '<div class="what"><b>' + esc(l.itemName) + '</b> × ' + l.qty +
-      '<div class="sub">' + esc(l.borrower) + '.' + esc(l.unit) + (l.note ? '.' + esc(l.note) : '') + '</div></div>' +
+      '<div class="sub">' + esc(l.borrower) + '.' + esc(l.unit) + (l.note ? '.' + esc(l.note) : '') + '</div>' +
+      (l.serials ? '<div class="sub serial">' + esc(parseList(l.serials).join("、")) + '</div>' : '') +
+    '</div>' +
     '<div class="when">借用 <b>' + fmtD(l.date) + '</b>' + (l.slot ? '(' + esc(l.slot) + ')' : '') +
       (withReturn
         ? '.預計歸還 <b>' + fmtD(l.due) + '</b>' + (over ? ' <span class="badge over">逾期</span>' : '')
@@ -590,15 +674,26 @@ async function refresh(showToastOnErr){
 }
 
 /* ---------- 借用視窗 ---------- */
+let pickSerials = []; // 借用視窗目前可選的序號
+function renderSerialBox(selectN){
+  $("serialBox").innerHTML = pickSerials.map((s, i) =>
+    '<button type="button" aria-pressed="' + (i < selectN) + '" data-s="' + esc(s) + '">' + esc(s) + '</button>'
+  ).join("");
+}
+function selectedSerials(){
+  return [...document.querySelectorAll('#serialBox button[aria-pressed="true"]')].map(b => b.dataset.s);
+}
 function openBorrow(itemId){
   currentItem = state.equipment.find(e => e.id === itemId);
   if(!currentItem) return;
-  const avail = availableOf(itemId);
+  pickSerials = availableSerials(itemId);
+  const avail = Math.min(availableOf(itemId), pickSerials.length);
   $("dCat").textContent = currentItem.cat;
   $("dName").textContent = currentItem.name;
   $("dAvail").textContent = "目前可借 " + avail + " 件";
   $("fQty").value = 1;
   $("fQty").dataset.max = avail;
+  renderSerialBox(1);
   $("fDate").value = todayStr();
   $("fDate").min = todayStr();
   $("fDue").value = todayStr();
@@ -622,13 +717,13 @@ async function submitBorrow(ev){
   ev.preventDefault();
   const err = $("formErr");
   err.style.display = "none";
-  const qty = parseInt($("fQty").value, 10) || 0;
-  const max = parseInt($("fQty").dataset.max, 10) || 0;
+  const serials = selectedSerials();
+  const qty = serials.length;
   const name = $("fName").value.trim();
   const unit = $("fUnit").value.trim();
   const date = $("fDate").value, due = $("fDue").value;
   let msg = "";
-  if(qty < 1 || qty > max) msg = "數量需介於 1~" + max + " 件。";
+  if(qty < 1) msg = "請至少選擇一個借用序號。";
   else if(!name) msg = "請填寫借用人姓名。";
   else if(!unit) msg = "請填寫班級或處室。";
   else if(!date || !due) msg = "請選擇借用日期與預計歸還日。";
@@ -640,7 +735,7 @@ async function submitBorrow(ev){
   $("btnSubmit").textContent = "登記中…";
   try{
     const data = await apiPost({
-      action: "borrow", itemId: currentItem.id, qty, borrower: name, unit,
+      action: "borrow", itemId: currentItem.id, qty, serials, borrower: name, unit,
       date, due, slot: pickedSlot(), note: $("fNote").value.trim()
     });
     state = {equipment: data.equipment || state.equipment, loans: data.loans || state.loans};
@@ -658,21 +753,38 @@ async function submitBorrow(ev){
   }
 }
 
-async function doReturn(loanId, btn){
+async function doReturn(loanId, serials, btn){
   const l = state.loans.find(x => x.id === loanId);
-  btn.disabled = true;
-  btn.textContent = "處理中…";
+  if(btn){ btn.disabled = true; btn.textContent = "處理中…"; }
   try{
-    const data = await apiPost({action: "return", loanId});
+    const data = await apiPost({action: "return", loanId, serials: serials || []});
     state = {equipment: data.equipment || state.equipment, loans: data.loans || state.loans};
     localStorage.setItem(CACHE_KEY, JSON.stringify({...state, at: new Date().toTimeString().slice(0,5)}));
     render();
-    toast("已歸還:" + (l ? l.itemName : "設備"));
+    toast("已歸還:" + (l ? l.itemName : "設備") + (serials && serials.length ? " × " + serials.length : ""));
+    return true;
   }catch(e){
-    btn.disabled = false;
-    btn.textContent = "歸還";
+    if(btn){ btn.disabled = false; btn.textContent = "歸還"; }
     toast("歸還失敗:" + e.message, true);
+    return false;
   }
+}
+
+/* 歸還視窗:一筆借用多個序號時,可勾選只還其中幾台 */
+let retLoan = null;
+function openReturn(loanId, btn){
+  const l = state.loans.find(x => x.id === loanId);
+  if(!l) return;
+  const serials = parseList(l.serials);
+  if(serials.length <= 1){ doReturn(loanId, serials, btn); return; }
+  retLoan = l;
+  $("rName").textContent = l.itemName;
+  $("rInfo").textContent = l.borrower + "." + l.unit + ".借用中 " + serials.length + " 件";
+  $("retList").innerHTML = serials.map(s =>
+    '<label><input type="checkbox" checked value="' + esc(s) + '">' + esc(s) + '</label>'
+  ).join("");
+  $("retErr").style.display = "none";
+  $("dlgRet").showModal();
 }
 
 /* ---------- 事件 ---------- */
@@ -698,7 +810,28 @@ $("grid").addEventListener("click", e => {
 });
 $("loanList").addEventListener("click", e => {
   const b = e.target.closest("button[data-return]");
-  if(b) doReturn(b.dataset.return, b);
+  if(b) openReturn(b.dataset.return, b);
+});
+$("btnRetCancel").addEventListener("click", () => $("dlgRet").close());
+$("btnRetOk").addEventListener("click", async () => {
+  const picked = [...document.querySelectorAll("#retList input:checked")].map(i => i.value);
+  const err = $("retErr");
+  if(!picked.length){
+    err.textContent = "請至少勾選一個要歸還的序號。";
+    err.style.display = "block";
+    return;
+  }
+  const btn = $("btnRetOk");
+  btn.disabled = true; btn.textContent = "處理中…";
+  const ok = await doReturn(retLoan.id, picked, null);
+  btn.disabled = false; btn.textContent = "確認歸還";
+  if(ok) $("dlgRet").close();
+});
+$("serialBox").addEventListener("click", e => {
+  const b = e.target.closest("button[data-s]");
+  if(!b) return;
+  b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true");
+  $("fQty").value = selectedSerials().length;
 });
 $("slotChips").addEventListener("click", e => {
   const b = e.target.closest("button");
@@ -708,10 +841,18 @@ $("slotChips").addEventListener("click", e => {
 $("qtyMinus").addEventListener("click", () => {
   const i = $("fQty");
   i.value = Math.max(1, (parseInt(i.value,10)||1) - 1);
+  renderSerialBox(parseInt(i.value,10));
 });
 $("qtyPlus").addEventListener("click", () => {
   const i = $("fQty");
   i.value = Math.min(parseInt(i.dataset.max,10)||1, (parseInt(i.value,10)||1) + 1);
+  renderSerialBox(parseInt(i.value,10));
+});
+$("fQty").addEventListener("change", () => {
+  const i = $("fQty");
+  const v = Math.min(parseInt(i.dataset.max,10)||1, Math.max(1, parseInt(i.value,10)||1));
+  i.value = v;
+  renderSerialBox(v);
 });
 $("fDate").addEventListener("change", () => {
   $("fDue").min = $("fDate").value;
