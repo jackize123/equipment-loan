@@ -236,6 +236,33 @@ form.borrow-form{padding:16px 24px 24px;display:flex;flex-direction:column;gap:1
   font-variant-numeric:tabular-nums;
 }
 .ret-list input{width:16px;height:16px;accent-color:var(--brand)}
+
+/* ---------- 盤點 ---------- */
+.stats .s-warn b{color:var(--amber)}
+.loan .sub.warn{color:var(--amber)}
+.inv-list{display:flex;flex-direction:column;gap:6px;padding:14px 24px 0;max-height:42vh;overflow-y:auto}
+.inv-row{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  border:1px solid var(--line);border-radius:9px;padding:6px 12px;
+  font-size:13.5px;font-variant-numeric:tabular-nums;flex-wrap:wrap;
+}
+.inv-row.out{opacity:.55}
+.inv-row .outtag{font-size:12px;color:var(--muted)}
+.inv-row .st{display:flex;gap:4px;flex-wrap:wrap}
+.inv-row .st button{
+  border:1px solid var(--line);border-radius:999px;padding:2px 10px;
+  font-size:12px;color:var(--muted);
+}
+.inv-row .st button[aria-pressed="true"]{
+  background:var(--brand-bg);border-color:var(--brand);color:var(--brand-ink);font-weight:700;
+}
+.inv-row .st button[data-r="異常"][aria-pressed="true"],
+.inv-row .st button[data-r="長期借用"][aria-pressed="true"]{
+  background:var(--amber-bg);border-color:var(--amber);color:var(--amber);
+}
+.inv-row .st button[data-r="未尋獲"][aria-pressed="true"]{
+  background:var(--red-bg);border-color:var(--red);color:var(--red);
+}
 .dlg-foot{display:flex;gap:10px;justify-content:flex-end;padding:14px 24px 22px}
 .dlg-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:4px}
 .btn-plain{border:1px solid var(--line);border-radius:10px;padding:9px 18px;font-weight:600;color:var(--muted)}
@@ -291,6 +318,7 @@ footer{margin-top:48px;font-size:12px;color:var(--muted);text-align:center}
     <button role="tab" aria-selected="true" data-tab="items" id="tabItems">設備總覽</button>
     <button role="tab" aria-selected="false" data-tab="loans" id="tabLoans">借用中<span class="n" id="loanCount"></span></button>
     <button role="tab" aria-selected="false" data-tab="history" id="tabHistory">借還紀錄</button>
+    <button role="tab" aria-selected="false" data-tab="inv" id="tabInv">盤點</button>
   </nav>
 
   <section id="panelItems">
@@ -307,6 +335,10 @@ footer{margin-top:48px;font-size:12px;color:var(--muted);text-align:center}
 
   <section id="panelHistory" hidden>
     <div class="list" id="histList"></div>
+  </section>
+
+  <section id="panelInv" hidden>
+    <div class="list" id="invList"></div>
   </section>
 
   <footer>資料儲存於 Google 試算表.設備項目請於試算表「設備」工作表維護</footer>
@@ -368,6 +400,32 @@ footer{margin-top:48px;font-size:12px;color:var(--muted);text-align:center}
     <div class="dlg-actions">
       <button type="button" class="btn-plain" id="btnCancel">取消</button>
       <button type="submit" class="btn-main" id="btnSubmit">登記借用</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgInv">
+  <div class="dlg-head">
+    <span class="cat">盤點登記</span>
+    <h2 id="iName"></h2>
+    <div class="avail" id="iInfo"></div>
+  </div>
+  <div class="inv-list" id="invSerials"></div>
+  <form class="borrow-form" id="invForm" method="dialog" novalidate style="padding-top:10px">
+    <div class="row2">
+      <div class="field">
+        <label for="iChecker">盤點人</label>
+        <input id="iChecker" autocomplete="name" required>
+      </div>
+      <div class="field">
+        <label for="iNote">備註(選填)</label>
+        <input id="iNote" placeholder="異常說明等">
+      </div>
+    </div>
+    <p class="form-err" id="invErr" role="alert"></p>
+    <div class="dlg-actions">
+      <button type="button" class="btn-plain" id="btnInvCancel">取消</button>
+      <button type="submit" class="btn-main" id="btnInvOk">送出盤點</button>
     </div>
   </form>
 </dialog>
@@ -441,8 +499,26 @@ function demoLoad(){
 }
 function demoSave(data){ localStorage.setItem(DEMO_KEY, JSON.stringify(data)); }
 
+// 示範模式:從本機盤點紀錄算出每項設備的上次盤點日與停借清單
+function applyDemoInv(data){
+  const latest = {};
+  (data.invLog || []).forEach(rec => { latest[rec.itemId + "|" + rec.s] = rec; });
+  data.equipment.forEach(it => {
+    let last = "";
+    const bad = [];
+    serialsOfItem(it).forEach(s => {
+      const rec = latest[it.id + "|" + s];
+      if(!rec) return;
+      if(rec.d > last) last = rec.d;
+      if(rec.r !== "正常") bad.push({s, r: rec.r, note: rec.note || ""});
+    });
+    it.lastCheck = last;
+    it.bad = bad;
+  });
+}
+
 async function apiGetAll(){
-  if(isDemo){ return demoLoad(); }
+  if(isDemo){ const d = demoLoad(); applyDemoInv(d); return d; }
   const r = await fetch(API_URL + "?action=all", {redirect:"follow"});
   if(!r.ok) throw new Error("HTTP " + r.status);
   const j = await r.json();
@@ -452,7 +528,15 @@ async function apiGetAll(){
 async function apiPost(payload){
   if(isDemo){
     const data = demoLoad();
-    if(payload.action === "borrow"){
+    applyDemoInv(data);
+    if(payload.action === "inventory"){
+      data.invLog = data.invLog || [];
+      const today = todayStr();
+      (payload.results || []).forEach(r =>
+        data.invLog.push({itemId: payload.itemId, s: r.s, r: r.r, d: today, note: payload.note || ""})
+      );
+      applyDemoInv(data);
+    }else if(payload.action === "borrow"){
       const availS = availableSerials(payload.itemId, data);
       const serials = (payload.serials || []).map(String);
       if(!serials.length) throw new Error("請至少選擇一個序號");
@@ -503,7 +587,8 @@ async function apiPost(payload){
 
 /* ---------- 計算 ---------- */
 function activeLoans(data){ return (data || state).loans.filter(l => l.status === "借用中"); }
-const parseList = s => String(s || "").split(/[,、;\s]+/).filter(Boolean);
+// 只用逗號/頓號/分號/換行切割,序號本身可以含空格(例:DJI NEO-01)
+const parseList = s => String(s || "").split(/[,、;\n]+/).map(x => x.trim()).filter(Boolean);
 // 一件設備的全部序號:試算表「序號清單」欄有填就用它,否則依總數自動產生 編號-01…
 function serialsOfItem(item){
   const custom = parseList(item.serials);
@@ -523,19 +608,20 @@ function borrowedInfo(itemId, data){
   });
   return {set, legacy};
 }
+const badOf = item => new Set((item.bad || []).map(b => b.s)); // 盤點列為異常/未尋獲/長期借用 → 停借
 function availableSerials(itemId, data){
   const d = data || state;
   const item = d.equipment.find(e => e.id === itemId);
   if(!item) return [];
-  const b = borrowedInfo(itemId, d);
-  return serialsOfItem(item).filter(s => !b.set.has(s));
+  const b = borrowedInfo(itemId, d), bad = badOf(item);
+  return serialsOfItem(item).filter(s => !b.set.has(s) && !bad.has(s));
 }
 function availableOf(itemId, data){
   const d = data || state;
   const item = d.equipment.find(e => e.id === itemId);
   if(!item) return 0;
   const b = borrowedInfo(itemId, d);
-  return Math.max(0, serialsOfItem(item).length - b.set.size - b.legacy);
+  return Math.max(0, availableSerials(itemId, d).length - b.legacy);
 }
 function isOverdue(l){ return l.status === "借用中" && l.due && l.due < todayStr(); }
 
@@ -546,6 +632,7 @@ function render(){
   renderGrid();
   renderLoans();
   renderHistory();
+  renderInv();
 }
 
 function renderStats(){
@@ -553,9 +640,11 @@ function renderStats(){
   const availTotal = state.equipment.reduce((s,e) => s + availableOf(e.id), 0);
   const outTotal = act.reduce((s,l) => s + Number(l.qty||0), 0);
   const overdue = act.filter(isOverdue).length;
+  const badTotal = state.equipment.reduce((s,e) => s + (e.bad ? e.bad.length : 0), 0);
   $("stats").innerHTML =
     '<span class="s-ok"><b>' + availTotal + '</b>件可借</span>' +
     '<span><b>' + outTotal + '</b>件借出中</span>' +
+    (badTotal ? '<span class="s-warn"><b>' + badTotal + '</b>件停借</span>' : '') +
     (overdue ? '<span class="s-bad"><b>' + overdue + '</b>筆逾期未還</span>' : '');
   $("loanCount").textContent = act.length ? act.length : "";
 }
@@ -586,7 +675,9 @@ function renderGrid(){
       '<div class="info">' +
         '<span class="cat">' + esc(e.cat) + '</span>' +
         '<h3>' + esc(e.name) + '</h3>' +
-        '<div class="meta">共 ' + e.total + ' 件' + (e.note ? '.' + esc(e.note) : '') + '</div>' +
+        '<div class="meta">共 ' + e.total + ' 件' +
+          (e.bad && e.bad.length ? '.停借 ' + e.bad.length + ' 件' : '') +
+          (e.note ? '.' + esc(e.note) : '') + '</div>' +
       '</div>' +
       '<button class="borrow" data-borrow="' + esc(e.id) + '"' + (avail === 0 ? " disabled" : "") + '>' +
         (avail === 0 ? "已借完" : "借用") + '</button>' +
@@ -622,6 +713,93 @@ function renderHistory(){
   $("histList").innerHTML = done.length
     ? done.map(l => loanRow(l, false)).join("")
     : '<div class="empty">還沒有歸還紀錄。</div>';
+}
+
+/* ---------- 盤點 ---------- */
+function renderInv(){
+  if(!state.equipment.length){
+    $("invList").innerHTML = '<div class="empty">還沒有設備資料。</div>';
+    return;
+  }
+  const d = new Date(); d.setDate(d.getDate() - 90);
+  const staleBefore = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+  $("invList").innerHTML = state.equipment.map(e => {
+    const bad = e.bad || [];
+    const never = !e.lastCheck;
+    const stale = never || e.lastCheck < staleBefore; // 超過 90 天沒盤 → 提醒
+    return '<div class="loan">' +
+      '<div class="what"><b>' + esc(e.name) + '</b> · 共 ' + e.total + ' 件' +
+        (bad.length ? '<div class="sub warn">停借:' + bad.map(b => esc(b.s) + '(' + esc(b.r) + (b.note ? ':' + esc(b.note) : '') + ')').join('、') + '</div>' : '') +
+      '</div>' +
+      '<div class="when">上次盤點 <b>' + (never ? '從未' : esc(e.lastCheck)) + '</b>' +
+        (stale ? ' <span class="badge over">待盤點</span>' : '') +
+      '</div>' +
+      '<button class="ret" data-inv="' + esc(e.id) + '">盤點</button>' +
+    '</div>';
+  }).join("");
+}
+
+let invItem = null;
+function openInv(itemId){
+  invItem = state.equipment.find(e => e.id === itemId);
+  if(!invItem) return;
+  const borrowed = borrowedInfo(itemId).set;
+  const badMap = new Map((invItem.bad || []).map(b => [b.s, b.r]));
+  const all = serialsOfItem(invItem);
+  const outN = all.filter(s => borrowed.has(s)).length;
+  $("iName").textContent = invItem.name;
+  $("iInfo").textContent = "共 " + all.length + " 件" + (outN ? ",借出中 " + outN + " 件會自動略過" : "");
+  $("invSerials").innerHTML = all.map(s => {
+    if(borrowed.has(s)){
+      return '<div class="inv-row out"><span>' + esc(s) + '</span><span class="outtag">借出中.略過</span></div>';
+    }
+    const cur = badMap.get(s) || "正常";
+    return '<div class="inv-row"><span>' + esc(s) + '</span><div class="st" data-s="' + esc(s) + '">' +
+      ["正常","異常","未尋獲","長期借用"].map(r =>
+        '<button type="button" data-r="' + r + '" aria-pressed="' + (r === cur) + '">' + r + '</button>'
+      ).join("") + '</div></div>';
+  }).join("");
+  try{
+    const u = JSON.parse(localStorage.getItem(USER_KEY) || "{}");
+    if(u.name && !$("iChecker").value) $("iChecker").value = u.name;
+  }catch(e){}
+  $("invErr").style.display = "none";
+  $("dlgInv").showModal();
+}
+
+async function submitInv(ev){
+  ev.preventDefault();
+  const err = $("invErr");
+  err.style.display = "none";
+  const checker = $("iChecker").value.trim();
+  const results = [...document.querySelectorAll('#invSerials .st')].map(g => ({
+    s: g.dataset.s,
+    r: (g.querySelector('button[aria-pressed="true"]') || {dataset:{r:"正常"}}).dataset.r
+  }));
+  let msg = "";
+  if(!results.length) msg = "沒有可盤點的序號(全部借出中)。";
+  else if(!checker) msg = "請填寫盤點人。";
+  if(msg){ err.textContent = msg; err.style.display = "block"; return; }
+
+  const btn = $("btnInvOk");
+  btn.disabled = true; btn.textContent = "送出中…";
+  try{
+    const data = await apiPost({
+      action: "inventory", itemId: invItem.id, checker,
+      note: $("iNote").value.trim(), results
+    });
+    state = {equipment: data.equipment || state.equipment, loans: data.loans || state.loans};
+    localStorage.setItem(CACHE_KEY, JSON.stringify({...state, at: new Date().toTimeString().slice(0,5)}));
+    render();
+    $("dlgInv").close();
+    $("iNote").value = "";
+    toast("已完成盤點:" + invItem.name + "(" + results.length + " 件)");
+  }catch(e){
+    err.textContent = e.message;
+    err.style.display = "block";
+  }finally{
+    btn.disabled = false; btn.textContent = "送出盤點";
+  }
 }
 
 /* ---------- 同步狀態列 ---------- */
@@ -794,6 +972,7 @@ document.querySelectorAll(".tabs button").forEach(b => {
     $("panelItems").hidden = b.dataset.tab !== "items";
     $("panelLoans").hidden = b.dataset.tab !== "loans";
     $("panelHistory").hidden = b.dataset.tab !== "history";
+    $("panelInv").hidden = b.dataset.tab !== "inv";
   });
 });
 $("q").addEventListener("input", renderGrid);
@@ -812,6 +991,17 @@ $("loanList").addEventListener("click", e => {
   const b = e.target.closest("button[data-return]");
   if(b) openReturn(b.dataset.return, b);
 });
+$("invList").addEventListener("click", e => {
+  const b = e.target.closest("button[data-inv]");
+  if(b) openInv(b.dataset.inv);
+});
+$("invSerials").addEventListener("click", e => {
+  const b = e.target.closest("button[data-r]");
+  if(!b) return;
+  b.parentElement.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b));
+});
+$("invForm").addEventListener("submit", submitInv);
+$("btnInvCancel").addEventListener("click", () => $("dlgInv").close());
 $("btnRetCancel").addEventListener("click", () => $("dlgRet").close());
 $("btnRetOk").addEventListener("click", async () => {
   const picked = [...document.querySelectorAll("#retList input:checked")].map(i => i.value);
