@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>數辦設備借用清單</title>
+<style>
+/* ---------- 基礎與代幣 ---------- */
+:root{
+  --paper:#F4F7F6;
+  --card:#FFFFFF;
+  --ink:#182F38;
+  --muted:#5F7A82;
+  --line:#DCE5E2;
+  --brand:#0E7A5F;
+  --brand-ink:#0A5C48;
+  --brand-bg:#E1F1EB;
+  --amber:#A85B00;
+  --amber-bg:#F7ECD9;
+  --red:#B3261E;
+  --red-bg:#FBEAE8;
+  --tag-bg:#EDF3F1;
+  --shadow:0 1px 2px rgba(24,47,56,.06),0 4px 14px rgba(24,47,56,.05);
+  --radius:14px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --paper:#0F1B20;
+    --card:#182831;
+    --ink:#E3EDEF;
+    --muted:#8DA6AE;
+    --line:#283B44;
+    --brand:#3DBD9A;
+    --brand-ink:#7ADCC0;
+    --brand-bg:#123B32;
+    --amber:#E5A455;
+    --amber-bg:#3A2C14;
+    --red:#F0968D;
+    --red-bg:#43201D;
+    --tag-bg:#1F323B;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 14px rgba(0,0,0,.25);
+  }
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:"Segoe UI","Microsoft JhengHei","PingFang TC","Noto Sans TC",system-ui,sans-serif;
+  background:var(--paper);color:var(--ink);
+  font-size:15px;line-height:1.6;
+  min-height:100vh;
+}
+button{font:inherit;color:inherit;cursor:pointer;border:none;background:none}
+input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{transition:none!important;animation:none!important}
+}
+
+/* ---------- 版頭 ---------- */
+.wrap{max-width:1060px;margin:0 auto;padding:0 20px 80px}
+header{
+  display:flex;align-items:flex-end;justify-content:space-between;gap:12px;
+  padding:28px 0 18px;flex-wrap:wrap;
+}
+.brand .eyebrow{
+  font-size:12px;letter-spacing:.35em;color:var(--muted);
+  text-transform:uppercase;margin-bottom:2px;
+}
+.brand h1{font-size:26px;font-weight:800;letter-spacing:.04em}
+.sync{
+  display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);
+}
+.sync .dot{width:7px;height:7px;border-radius:50%;background:var(--brand);flex:none}
+.sync.stale .dot{background:var(--amber)}
+.sync button{
+  border:1px solid var(--line);border-radius:8px;padding:4px 12px;
+  background:var(--card);font-size:12.5px;color:var(--ink);
+  transition:border-color .15s;
+}
+.sync button:hover{border-color:var(--brand)}
+.sync button:disabled{opacity:.5;cursor:wait}
+
+.demo-note{
+  background:var(--amber-bg);color:var(--amber);
+  border-radius:10px;padding:8px 14px;font-size:13px;margin-bottom:16px;
+}
+
+/* ---------- 統計列 ---------- */
+.stats{
+  display:flex;gap:22px;flex-wrap:wrap;
+  padding:12px 0 20px;font-size:13.5px;color:var(--muted);
+}
+.stats b{font-size:19px;font-weight:800;color:var(--ink);margin-right:4px;font-variant-numeric:tabular-nums}
+.stats .s-ok b{color:var(--brand)}
+.stats .s-bad b{color:var(--red)}
+
+/* ---------- 分頁 ---------- */
+.tabs{
+  display:inline-flex;background:var(--card);border:1px solid var(--line);
+  border-radius:12px;padding:4px;gap:2px;margin-bottom:18px;box-shadow:var(--shadow);
+}
+.tabs button{
+  padding:7px 18px;border-radius:9px;font-size:14px;color:var(--muted);font-weight:600;
+  transition:background .15s,color .15s;
+}
+.tabs button[aria-selected="true"]{background:var(--brand);color:#fff}
+.tabs button .n{font-size:12px;opacity:.85;margin-left:3px;font-variant-numeric:tabular-nums}
+
+/* ---------- 工具列 ---------- */
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;align-items:center}
+.toolbar input[type=search]{
+  flex:1;min-width:200px;max-width:320px;
+  border:1px solid var(--line);border-radius:10px;padding:8px 14px;
+  background:var(--card);
+}
+.toolbar input[type=search]::placeholder{color:var(--muted)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chips button{
+  border:1px solid var(--line);background:var(--card);border-radius:999px;
+  padding:5px 14px;font-size:13px;color:var(--muted);transition:all .15s;
+}
+.chips button[aria-pressed="true"]{
+  background:var(--ink);border-color:var(--ink);color:var(--paper);font-weight:600;
+}
+
+/* ---------- 設備卡 + 掛牌 ---------- */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.item{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:16px;display:flex;gap:14px;align-items:center;box-shadow:var(--shadow);
+}
+/* 器材室掛牌:打孔吊牌造型的庫存牌 */
+.plate{
+  flex:none;width:74px;height:82px;border-radius:10px;position:relative;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:var(--brand-bg);color:var(--brand-ink);padding-top:8px;
+}
+.plate::before{ /* 打孔 */
+  content:"";position:absolute;top:7px;left:50%;transform:translateX(-50%);
+  width:8px;height:8px;border-radius:50%;
+  background:var(--card);box-shadow:inset 0 0 0 1.5px rgba(0,0,0,.14);
+}
+.plate .num{font-size:29px;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums}
+.plate .lbl{font-size:11px;letter-spacing:.2em;margin-left:.2em}
+.plate.low{background:var(--amber-bg);color:var(--amber)}
+.plate.zero{background:var(--red-bg);color:var(--red)}
+.item .info{flex:1;min-width:0}
+.item .cat{
+  display:inline-block;font-size:11px;color:var(--muted);
+  background:var(--tag-bg);border-radius:5px;padding:1px 8px;margin-bottom:3px;
+}
+.item h3{font-size:16px;font-weight:700;line-height:1.35}
+.item .meta{font-size:12.5px;color:var(--muted);margin-top:3px}
+.item .borrow{
+  flex:none;border:1px solid var(--brand);color:var(--brand);
+  border-radius:10px;padding:8px 16px;font-weight:700;font-size:14px;
+  transition:background .15s,color .15s;
+}
+.item .borrow:hover{background:var(--brand);color:#fff}
+.item .borrow:disabled{
+  border-color:var(--line);color:var(--muted);cursor:not-allowed;background:none;
+}
+
+/* ---------- 借用中/紀錄 清單 ---------- */
+.list{display:flex;flex-direction:column;gap:10px}
+.loan{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:13px 16px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;
+  box-shadow:var(--shadow);
+}
+.loan .what{flex:1;min-width:180px}
+.loan .what b{font-size:15px}
+.loan .what .sub{font-size:12.5px;color:var(--muted);margin-top:1px}
+.loan .when{font-size:12.5px;color:var(--muted);min-width:150px}
+.loan .when b{color:var(--ink);font-weight:600}
+.badge{
+  display:inline-block;font-size:11px;font-weight:700;border-radius:5px;
+  padding:1px 8px;vertical-align:1px;
+}
+.badge.over{background:var(--red-bg);color:var(--red)}
+.badge.done{background:var(--tag-bg);color:var(--muted)}
+.loan .ret{
+  border:1px solid var(--line);border-radius:9px;padding:6px 16px;
+  font-size:13.5px;font-weight:600;transition:all .15s;
+}
+.loan .ret:hover{border-color:var(--brand);color:var(--brand)}
+.loan .ret:disabled{opacity:.5;cursor:wait}
+.empty{
+  text-align:center;color:var(--muted);padding:56px 20px;font-size:14px;
+  border:1.5px dashed var(--line);border-radius:var(--radius);
+}
+
+/* ---------- 借用視窗 ---------- */
+dialog{
+  border:none;border-radius:18px;background:var(--card);color:var(--ink);
+  width:min(440px,calc(100vw - 32px));padding:0;box-shadow:0 20px 60px rgba(0,0,0,.25);
+}
+dialog::backdrop{background:rgba(15,27,32,.45)}
+.dlg-head{padding:20px 24px 0}
+.dlg-head .cat{font-size:12px;color:var(--muted)}
+.dlg-head h2{font-size:19px;font-weight:800}
+.dlg-head .avail{font-size:13px;color:var(--brand);font-weight:600;margin-top:2px}
+form.borrow-form{padding:16px 24px 24px;display:flex;flex-direction:column;gap:13px}
+.field label{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:4px}
+.field input,.field textarea{
+  width:100%;border:1px solid var(--line);border-radius:10px;padding:8px 12px;
+  background:var(--paper);
+}
+.field textarea{resize:vertical;min-height:56px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.stepper{display:flex;align-items:center;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;width:fit-content}
+.stepper button{width:38px;height:36px;font-size:18px;font-weight:700;background:var(--paper);transition:background .15s}
+.stepper button:hover{background:var(--tag-bg)}
+.stepper input{width:56px;text-align:center;border:none;background:var(--card);height:36px;font-weight:700;font-variant-numeric:tabular-nums}
+.slot-chips{display:flex;gap:6px;flex-wrap:wrap}
+.slot-chips button{
+  border:1px solid var(--line);border-radius:999px;padding:4px 13px;font-size:13px;color:var(--muted);
+}
+.slot-chips button[aria-pressed="true"]{background:var(--brand-bg);border-color:var(--brand);color:var(--brand-ink);font-weight:700}
+.dlg-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:4px}
+.btn-plain{border:1px solid var(--line);border-radius:10px;padding:9px 18px;font-weight:600;color:var(--muted)}
+.btn-main{
+  background:var(--brand);color:#fff;border-radius:10px;padding:9px 22px;font-weight:700;
+  transition:filter .15s;
+}
+.btn-main:hover{filter:brightness(1.08)}
+.btn-main:disabled{opacity:.55;cursor:wait}
+.form-err{color:var(--red);font-size:13px;display:none}
+
+/* ---------- 提示 ---------- */
+#toast{
+  position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(16px);
+  background:var(--ink);color:var(--paper);border-radius:10px;padding:10px 20px;
+  font-size:14px;font-weight:600;opacity:0;pointer-events:none;
+  transition:opacity .2s,transform .2s;max-width:calc(100vw - 40px);
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.err{background:var(--red);color:#fff}
+
+footer{margin-top:48px;font-size:12px;color:var(--muted);text-align:center}
+
+@media (max-width:560px){
+  .brand h1{font-size:22px}
+  .grid{grid-template-columns:1fr}
+  .loan .when{min-width:0;width:100%}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <div class="eyebrow">數位學習辦公室</div>
+      <h1>數辦設備借用清單</h1>
+    </div>
+    <div class="sync" id="sync">
+      <span class="dot" aria-hidden="true"></span>
+      <span id="syncText">載入中…</span>
+      <button id="btnRefresh" type="button">重新整理</button>
+    </div>
+  </header>
+
+  <div class="demo-note" id="demoNote" hidden>
+    示範模式:資料只儲存在這部裝置。後端部署完成後,在 index.html 開頭的 API_URL 填入網址即可全校共用。
+  </div>
+
+  <div class="stats" id="stats" aria-live="polite"></div>
+
+  <nav class="tabs" role="tablist" aria-label="檢視切換">
+    <button role="tab" aria-selected="true" data-tab="items" id="tabItems">設備總覽</button>
+    <button role="tab" aria-selected="false" data-tab="loans" id="tabLoans">借用中<span class="n" id="loanCount"></span></button>
+    <button role="tab" aria-selected="false" data-tab="history" id="tabHistory">借還紀錄</button>
+  </nav>
+
+  <section id="panelItems">
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="搜尋設備名稱…" aria-label="搜尋設備">
+      <div class="chips" id="catChips" role="group" aria-label="分類篩選"></div>
+    </div>
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <section id="panelLoans" hidden>
+    <div class="list" id="loanList"></div>
+  </section>
+
+  <section id="panelHistory" hidden>
+    <div class="list" id="histList"></div>
+  </section>
+
+  <footer>資料儲存於 Google 試算表.設備項目請於試算表「設備」工作表維護</footer>
+</div>
+
+<dialog id="dlg">
+  <div class="dlg-head">
+    <span class="cat" id="dCat"></span>
+    <h2 id="dName"></h2>
+    <div class="avail" id="dAvail"></div>
+  </div>
+  <form class="borrow-form" id="borrowForm" method="dialog" novalidate>
+    <div class="field">
+      <label for="fQty">數量</label>
+      <div class="stepper">
+        <button type="button" id="qtyMinus" aria-label="減少數量">−</button>
+        <input id="fQty" inputmode="numeric" value="1" aria-label="借用數量">
+        <button type="button" id="qtyPlus" aria-label="增加數量">+</button>
+      </div>
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label for="fName">借用人姓名</label>
+        <input id="fName" autocomplete="name" required>
+      </div>
+      <div class="field">
+        <label for="fUnit">班級/處室</label>
+        <input id="fUnit" placeholder="例:五年甲班" required>
+      </div>
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label for="fDate">借用日期</label>
+        <input id="fDate" type="date" required>
+      </div>
+      <div class="field">
+        <label for="fDue">預計歸還日</label>
+        <input id="fDue" type="date" required>
+      </div>
+    </div>
+    <div class="field">
+      <label>使用時段</label>
+      <div class="slot-chips" id="slotChips">
+        <button type="button" aria-pressed="true">整天</button>
+        <button type="button" aria-pressed="false">上午</button>
+        <button type="button" aria-pressed="false">下午</button>
+        <button type="button" aria-pressed="false">放學後</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="fNote">備註(選填)</label>
+      <textarea id="fNote" placeholder="用途、地點或其他說明"></textarea>
+    </div>
+    <p class="form-err" id="formErr" role="alert"></p>
+    <div class="dlg-actions">
+      <button type="button" class="btn-plain" id="btnCancel">取消</button>
+      <button type="submit" class="btn-main" id="btnSubmit">登記借用</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" role="status"></div>
+
+<script>
+"use strict";
+/* ============================================================
+   設定:部署 Code.gs 後,把網頁應用程式的 /exec 網址貼進來。
+   留空 = 示範模式(資料存在本機瀏覽器,可先試用畫面與流程)。
+   ============================================================ */
+const API_URL = "https://script.google.com/macros/s/AKfycbygdREPqSaItCBwPrSxr_aOzbL1lQ7uj3l7FHGhS0r0k7gJ00KzQpNI-z0YO-ElgX8/exec";
+
+/* ---------- 小工具 ---------- */
+const $ = id => document.getElementById(id);
+const todayStr = () => {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+};
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtD = s => s ? String(s).slice(5).replace("-","/") : "";
+
+let state = { equipment: [], loans: [] };
+let activeCat = "全部";
+let currentItem = null;
+
+/* ---------- 資料層:遠端(GAS)或本機示範 ---------- */
+const DEMO_KEY = "sb_demo_v1", CACHE_KEY = "sb_cache_v1", USER_KEY = "sb_user_v1";
+
+const DEMO_SEED = {
+  equipment: [
+    {id:"T01", name:"iPad 平板(充電車 A)", cat:"學習載具", total:30, note:"含充電車,借用請整車推走"},
+    {id:"T02", name:"Chromebook 筆電", cat:"學習載具", total:20, note:""},
+    {id:"P01", name:"單槍投影機", cat:"影音設備", total:3, note:"附 HDMI 線"},
+    {id:"P02", name:"實物投影機", cat:"影音設備", total:4, note:""},
+    {id:"A01", name:"行動擴音音箱", cat:"影音設備", total:5, note:"含頭戴麥克風"},
+    {id:"C01", name:"網路攝影機", cat:"影音設備", total:6, note:"視訊、直播用"},
+    {id:"M01", name:"無線麥克風組", cat:"影音設備", total:3, note:"一組兩支"},
+    {id:"V01", name:"VR 眼鏡", cat:"新興科技", total:10, note:"使用後請酒精擦拭"},
+    {id:"R01", name:"藍牙簡報筆", cat:"週邊配件", total:8, note:""},
+    {id:"H01", name:"HDMI 訊號線(5m)", cat:"週邊配件", total:10, note:""},
+    {id:"E01", name:"動力延長線", cat:"週邊配件", total:12, note:""},
+    {id:"S01", name:"相機三腳架", cat:"週邊配件", total:4, note:""}
+  ],
+  loans: []
+};
+
+const isDemo = !API_URL;
+
+function demoLoad(){
+  try{
+    const raw = localStorage.getItem(DEMO_KEY);
+    if(raw) return JSON.parse(raw);
+  }catch(e){}
+  return JSON.parse(JSON.stringify(DEMO_SEED));
+}
+function demoSave(data){ localStorage.setItem(DEMO_KEY, JSON.stringify(data)); }
+
+async function apiGetAll(){
+  if(isDemo){ return demoLoad(); }
+  const r = await fetch(API_URL + "?action=all", {redirect:"follow"});
+  if(!r.ok) throw new Error("HTTP " + r.status);
+  const j = await r.json();
+  if(!j.ok) throw new Error(j.error || "讀取失敗");
+  return j;
+}
+async function apiPost(payload){
+  if(isDemo){
+    const data = demoLoad();
+    if(payload.action === "borrow"){
+      const avail = availableOf(payload.itemId, data);
+      if(payload.qty > avail) throw new Error("可借數量不足(剩 " + avail + ")");
+      const item = data.equipment.find(e => e.id === payload.itemId);
+      data.loans.unshift({
+        id: "L" + Date.now().toString(36),
+        itemId: payload.itemId, itemName: item ? item.name : payload.itemId,
+        qty: payload.qty, borrower: payload.borrower, unit: payload.unit,
+        date: payload.date, slot: payload.slot, due: payload.due,
+        status: "借用中", returned: "", note: payload.note,
+        ts: new Date().toISOString()
+      });
+    }else if(payload.action === "return"){
+      const l = data.loans.find(x => x.id === payload.loanId);
+      if(l){ l.status = "已歸還"; l.returned = todayStr(); }
+    }
+    demoSave(data);
+    return data;
+  }
+  const r = await fetch(API_URL, {
+    method: "POST",
+    headers: {"Content-Type": "text/plain;charset=utf-8"},
+    body: JSON.stringify(payload),
+    redirect: "follow"
+  });
+  if(!r.ok) throw new Error("HTTP " + r.status);
+  const j = await r.json();
+  if(!j.ok) throw new Error(j.error || "寫入失敗");
+  return j;
+}
+
+/* ---------- 計算 ---------- */
+function activeLoans(data){ return (data || state).loans.filter(l => l.status === "借用中"); }
+function availableOf(itemId, data){
+  const d = data || state;
+  const item = d.equipment.find(e => e.id === itemId);
+  if(!item) return 0;
+  const out = d.loans.filter(l => l.status === "借用中" && l.itemId === itemId)
+                     .reduce((s,l) => s + Number(l.qty || 0), 0);
+  return Math.max(0, Number(item.total) - out);
+}
+function isOverdue(l){ return l.status === "借用中" && l.due && l.due < todayStr(); }
+
+/* ---------- 畫面 ---------- */
+function render(){
+  renderStats();
+  renderChips();
+  renderGrid();
+  renderLoans();
+  renderHistory();
+}
+
+function renderStats(){
+  const act = activeLoans();
+  const availTotal = state.equipment.reduce((s,e) => s + availableOf(e.id), 0);
+  const outTotal = act.reduce((s,l) => s + Number(l.qty||0), 0);
+  const overdue = act.filter(isOverdue).length;
+  $("stats").innerHTML =
+    '<span class="s-ok"><b>' + availTotal + '</b>件可借</span>' +
+    '<span><b>' + outTotal + '</b>件借出中</span>' +
+    (overdue ? '<span class="s-bad"><b>' + overdue + '</b>筆逾期未還</span>' : '');
+  $("loanCount").textContent = act.length ? act.length : "";
+}
+
+function renderChips(){
+  const cats = ["全部", ...new Set(state.equipment.map(e => e.cat).filter(Boolean))];
+  if(!cats.includes(activeCat)) activeCat = "全部";
+  $("catChips").innerHTML = cats.map(c =>
+    '<button type="button" aria-pressed="' + (c === activeCat) + '" data-cat="' + esc(c) + '">' + esc(c) + '</button>'
+  ).join("");
+}
+
+function renderGrid(){
+  const q = $("q").value.trim().toLowerCase();
+  const list = state.equipment.filter(e =>
+    (activeCat === "全部" || e.cat === activeCat) &&
+    (!q || e.name.toLowerCase().includes(q))
+  );
+  if(!list.length){
+    $("grid").innerHTML = '<div class="empty" style="grid-column:1/-1">找不到符合的設備。換個關鍵字,或切換分類看看。</div>';
+    return;
+  }
+  $("grid").innerHTML = list.map(e => {
+    const avail = availableOf(e.id);
+    const cls = avail === 0 ? "zero" : (avail <= Math.max(1, Math.floor(e.total * .2)) ? "low" : "");
+    return '<div class="item">' +
+      '<div class="plate ' + cls + '"><span class="num">' + avail + '</span><span class="lbl">可借</span></div>' +
+      '<div class="info">' +
+        '<span class="cat">' + esc(e.cat) + '</span>' +
+        '<h3>' + esc(e.name) + '</h3>' +
+        '<div class="meta">共 ' + e.total + ' 件' + (e.note ? '.' + esc(e.note) : '') + '</div>' +
+      '</div>' +
+      '<button class="borrow" data-borrow="' + esc(e.id) + '"' + (avail === 0 ? " disabled" : "") + '>' +
+        (avail === 0 ? "已借完" : "借用") + '</button>' +
+    '</div>';
+  }).join("");
+}
+
+function loanRow(l, withReturn){
+  const over = isOverdue(l);
+  return '<div class="loan">' +
+    '<div class="what"><b>' + esc(l.itemName) + '</b> × ' + l.qty +
+      '<div class="sub">' + esc(l.borrower) + '.' + esc(l.unit) + (l.note ? '.' + esc(l.note) : '') + '</div></div>' +
+    '<div class="when">借用 <b>' + fmtD(l.date) + '</b>' + (l.slot ? '(' + esc(l.slot) + ')' : '') +
+      (withReturn
+        ? '.預計歸還 <b>' + fmtD(l.due) + '</b>' + (over ? ' <span class="badge over">逾期</span>' : '')
+        : '.已於 <b>' + fmtD(l.returned) + '</b> 歸還 <span class="badge done">完成</span>') +
+    '</div>' +
+    (withReturn ? '<button class="ret" data-return="' + esc(l.id) + '">歸還</button>' : '') +
+  '</div>';
+}
+
+function renderLoans(){
+  const act = activeLoans().slice().sort((a,b) => (a.due||"") < (b.due||"") ? -1 : 1);
+  $("loanList").innerHTML = act.length
+    ? act.map(l => loanRow(l, true)).join("")
+    : '<div class="empty">目前沒有借出中的設備。到「設備總覽」點「借用」即可登記。</div>';
+}
+
+function renderHistory(){
+  const done = state.loans.filter(l => l.status === "已歸還").slice(0, 60);
+  $("histList").innerHTML = done.length
+    ? done.map(l => loanRow(l, false)).join("")
+    : '<div class="empty">還沒有歸還紀錄。</div>';
+}
+
+/* ---------- 同步狀態列 ---------- */
+function setSync(text, stale){
+  $("syncText").textContent = text;
+  $("sync").classList.toggle("stale", !!stale);
+}
+
+/* ---------- 提示 ---------- */
+let toastTimer;
+function toast(msg, isErr){
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.toggle("err", !!isErr);
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
+}
+
+/* ---------- 載入流程:先畫快照,再抓最新 ---------- */
+function paintFromCache(){
+  try{
+    const raw = localStorage.getItem(CACHE_KEY);
+    if(raw){
+      const c = JSON.parse(raw);
+      state = {equipment: c.equipment || [], loans: c.loans || []};
+      render();
+      setSync("上次資料 " + (c.at || ""), true);
+      return true;
+    }
+  }catch(e){}
+  return false;
+}
+
+async function refresh(showToastOnErr){
+  $("btnRefresh").disabled = true;
+  try{
+    const data = await apiGetAll();
+    state = {equipment: data.equipment || [], loans: data.loans || []};
+    const at = new Date().toTimeString().slice(0,5);
+    localStorage.setItem(CACHE_KEY, JSON.stringify({...state, at}));
+    render();
+    setSync(isDemo ? "示範資料" : "資料時間 " + at, false);
+  }catch(e){
+    setSync("連線失敗,顯示上次資料", true);
+    if(showToastOnErr) toast("無法連線後端:" + e.message, true);
+  }finally{
+    $("btnRefresh").disabled = false;
+  }
+}
+
+/* ---------- 借用視窗 ---------- */
+function openBorrow(itemId){
+  currentItem = state.equipment.find(e => e.id === itemId);
+  if(!currentItem) return;
+  const avail = availableOf(itemId);
+  $("dCat").textContent = currentItem.cat;
+  $("dName").textContent = currentItem.name;
+  $("dAvail").textContent = "目前可借 " + avail + " 件";
+  $("fQty").value = 1;
+  $("fQty").dataset.max = avail;
+  $("fDate").value = todayStr();
+  $("fDate").min = todayStr();
+  $("fDue").value = todayStr();
+  $("fDue").min = todayStr();
+  $("formErr").style.display = "none";
+  try{
+    const u = JSON.parse(localStorage.getItem(USER_KEY) || "{}");
+    if(u.name) $("fName").value = u.name;
+    if(u.unit) $("fUnit").value = u.unit;
+  }catch(e){}
+  $("dlg").showModal();
+  ($("fName").value ? $("fQty") : $("fName")).focus();
+}
+
+function pickedSlot(){
+  const b = document.querySelector('#slotChips button[aria-pressed="true"]');
+  return b ? b.textContent : "整天";
+}
+
+async function submitBorrow(ev){
+  ev.preventDefault();
+  const err = $("formErr");
+  err.style.display = "none";
+  const qty = parseInt($("fQty").value, 10) || 0;
+  const max = parseInt($("fQty").dataset.max, 10) || 0;
+  const name = $("fName").value.trim();
+  const unit = $("fUnit").value.trim();
+  const date = $("fDate").value, due = $("fDue").value;
+  let msg = "";
+  if(qty < 1 || qty > max) msg = "數量需介於 1~" + max + " 件。";
+  else if(!name) msg = "請填寫借用人姓名。";
+  else if(!unit) msg = "請填寫班級或處室。";
+  else if(!date || !due) msg = "請選擇借用日期與預計歸還日。";
+  else if(due < date) msg = "預計歸還日不能早於借用日期。";
+  if(msg){ err.textContent = msg; err.style.display = "block"; return; }
+
+  localStorage.setItem(USER_KEY, JSON.stringify({name, unit}));
+  $("btnSubmit").disabled = true;
+  $("btnSubmit").textContent = "登記中…";
+  try{
+    const data = await apiPost({
+      action: "borrow", itemId: currentItem.id, qty, borrower: name, unit,
+      date, due, slot: pickedSlot(), note: $("fNote").value.trim()
+    });
+    state = {equipment: data.equipment || state.equipment, loans: data.loans || state.loans};
+    localStorage.setItem(CACHE_KEY, JSON.stringify({...state, at: new Date().toTimeString().slice(0,5)}));
+    render();
+    $("dlg").close();
+    $("fNote").value = "";
+    toast("已登記借用:" + currentItem.name + " × " + qty);
+  }catch(e){
+    err.textContent = e.message;
+    err.style.display = "block";
+  }finally{
+    $("btnSubmit").disabled = false;
+    $("btnSubmit").textContent = "登記借用";
+  }
+}
+
+async function doReturn(loanId, btn){
+  const l = state.loans.find(x => x.id === loanId);
+  btn.disabled = true;
+  btn.textContent = "處理中…";
+  try{
+    const data = await apiPost({action: "return", loanId});
+    state = {equipment: data.equipment || state.equipment, loans: data.loans || state.loans};
+    localStorage.setItem(CACHE_KEY, JSON.stringify({...state, at: new Date().toTimeString().slice(0,5)}));
+    render();
+    toast("已歸還:" + (l ? l.itemName : "設備"));
+  }catch(e){
+    btn.disabled = false;
+    btn.textContent = "歸還";
+    toast("歸還失敗:" + e.message, true);
+  }
+}
+
+/* ---------- 事件 ---------- */
+document.querySelectorAll(".tabs button").forEach(b => {
+  b.addEventListener("click", () => {
+    document.querySelectorAll(".tabs button").forEach(x => x.setAttribute("aria-selected", x === b));
+    $("panelItems").hidden = b.dataset.tab !== "items";
+    $("panelLoans").hidden = b.dataset.tab !== "loans";
+    $("panelHistory").hidden = b.dataset.tab !== "history";
+  });
+});
+$("q").addEventListener("input", renderGrid);
+$("catChips").addEventListener("click", e => {
+  const b = e.target.closest("button[data-cat]");
+  if(!b) return;
+  activeCat = b.dataset.cat;
+  renderChips();
+  renderGrid();
+});
+$("grid").addEventListener("click", e => {
+  const b = e.target.closest("button[data-borrow]");
+  if(b) openBorrow(b.dataset.borrow);
+});
+$("loanList").addEventListener("click", e => {
+  const b = e.target.closest("button[data-return]");
+  if(b) doReturn(b.dataset.return, b);
+});
+$("slotChips").addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if(!b) return;
+  document.querySelectorAll("#slotChips button").forEach(x => x.setAttribute("aria-pressed", x === b));
+});
+$("qtyMinus").addEventListener("click", () => {
+  const i = $("fQty");
+  i.value = Math.max(1, (parseInt(i.value,10)||1) - 1);
+});
+$("qtyPlus").addEventListener("click", () => {
+  const i = $("fQty");
+  i.value = Math.min(parseInt(i.dataset.max,10)||1, (parseInt(i.value,10)||1) + 1);
+});
+$("fDate").addEventListener("change", () => {
+  $("fDue").min = $("fDate").value;
+  if($("fDue").value < $("fDate").value) $("fDue").value = $("fDate").value;
+});
+$("borrowForm").addEventListener("submit", submitBorrow);
+$("btnCancel").addEventListener("click", () => $("dlg").close());
+$("btnRefresh").addEventListener("click", () => refresh(true));
+
+/* ---------- 啟動 ---------- */
+$("demoNote").hidden = !isDemo;
+paintFromCache();
+refresh(false);
+</script>
+</body>
+</html>
